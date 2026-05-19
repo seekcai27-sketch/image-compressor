@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>圖片壓縮工具 — Notion 上傳用</title>
+<style>
+  :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2e38; --txt:#e6e8ec; --sub:#9aa0ab; --accent:#6c8cff; --ok:#3ecf8e; --warn:#ffb454; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--txt); font-family:-apple-system,"Segoe UI","Microsoft JhengHei",sans-serif; padding:32px 18px; }
+  .wrap { max-width:760px; margin:0 auto; }
+  h1 { font-size:22px; margin-bottom:6px; }
+  .desc { color:var(--sub); font-size:14px; margin-bottom:22px; }
+  .controls { display:flex; gap:16px; flex-wrap:wrap; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:18px; }
+  .controls label { font-size:13px; color:var(--sub); display:flex; align-items:center; gap:8px; }
+  .controls input[type=number] { width:70px; background:#0f1115; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  .controls select { background:#0f1115; color:var(--txt); border:1px solid var(--line); border-radius:6px; padding:6px 8px; }
+  #drop { border:2px dashed var(--line); border-radius:14px; padding:46px 20px; text-align:center; cursor:pointer; transition:.15s; background:var(--card); }
+  #drop.hover { border-color:var(--accent); background:#1d2230; }
+  #drop strong { color:var(--accent); }
+  #drop p { color:var(--sub); font-size:13px; margin-top:8px; }
+  .list { margin-top:20px; display:flex; flex-direction:column; gap:12px; }
+  .item { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; display:flex; align-items:center; gap:14px; }
+  .item img { width:54px; height:54px; object-fit:cover; border-radius:8px; background:#000; flex-shrink:0; }
+  .item .info { flex:1; min-width:0; }
+  .item .name { font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .item .stat { font-size:12px; color:var(--sub); margin-top:4px; }
+  .item .stat b { color:var(--ok); }
+  .item .stat .big { color:var(--warn); }
+  .item a.dl { background:var(--accent); color:#fff; text-decoration:none; font-size:13px; padding:8px 14px; border-radius:8px; white-space:nowrap; }
+  .item a.dl.disabled { opacity:.4; pointer-events:none; }
+  .spin { width:16px; height:16px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:s 0.7s linear infinite; }
+  @keyframes s { to { transform:rotate(360deg); } }
+  .footnote { color:var(--sub); font-size:12px; margin-top:22px; line-height:1.6; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>圖片壓縮工具 🖼️</h1>
+  <p class="desc">把任何圖片壓到指定大小以下，專為上傳 Notion 設計。全程在你瀏覽器本機處理，圖片不會上傳到任何地方。</p>
+
+  <div class="controls">
+    <label>上限大小
+      <input type="number" id="maxMB" value="5" min="0.1" step="0.1"> MB
+    </label>
+    <label>輸出格式
+      <select id="fmt">
+        <option value="image/jpeg">JPEG（壓縮率最佳，建議）</option>
+        <option value="image/webp">WebP（更小，保留透明）</option>
+        <option value="image/png">PNG（無損，檔案較大）</option>
+      </select>
+    </label>
+  </div>
+
+  <div id="drop">
+    <strong>點此選擇圖片</strong> 或把檔案拖進來
+    <p>支援 JPG / PNG / WebP / GIF 等，可一次多張</p>
+    <input type="file" id="file" accept="image/*" multiple hidden>
+  </div>
+
+  <div class="list" id="list"></div>
+
+  <p class="footnote">
+    運作方式：先嘗試降低畫質壓縮，若仍超過上限會自動縮小尺寸，直到符合為止。<br>
+    Notion 免費方案單檔上限為 5MB，預設值已設好，直接用即可。
+  </p>
+</div>
+
+<script>
+const dropEl = document.getElementById('drop');
+const fileEl = document.getElementById('file');
+const listEl = document.getElementById('list');
+
+dropEl.addEventListener('click', () => fileEl.click());
+dropEl.addEventListener('dragover', e => { e.preventDefault(); dropEl.classList.add('hover'); });
+dropEl.addEventListener('dragleave', () => dropEl.classList.remove('hover'));
+dropEl.addEventListener('drop', e => {
+  e.preventDefault(); dropEl.classList.remove('hover');
+  handleFiles(e.dataTransfer.files);
+});
+fileEl.addEventListener('change', () => handleFiles(fileEl.files));
+
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/1048576).toFixed(2) + ' MB';
+}
+
+function handleFiles(files) {
+  [...files].filter(f => f.type.startsWith('image/')).forEach(processFile);
+}
+
+async function processFile(file) {
+  const row = document.createElement('div');
+  row.className = 'item';
+  row.innerHTML = `
+    <img alt="">
+    <div class="info">
+      <div class="name">${file.name}</div>
+      <div class="stat">原始 ${fmtSize(file.size)} — <span class="working">處理中…</span></div>
+    </div>
+    <div class="spin"></div>`;
+  listEl.prepend(row);
+  const imgEl = row.querySelector('img');
+  const statEl = row.querySelector('.stat');
+
+  try {
+    const bitmap = await createImageBitmap(file);
+    const maxBytes = parseFloat(document.getElementById('maxMB').value) * 1048576;
+    const mime = document.getElementById('fmt').value;
+    imgEl.src = URL.createObjectURL(file);
+
+    const blob = await compress(bitmap, maxBytes, mime);
+    bitmap.close && bitmap.close();
+
+    const ext = mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
+    const base = file.name.replace(/\.[^.]+$/, '');
+    const url = URL.createObjectURL(blob);
+    const ok = blob.size <= maxBytes;
+    const sizeClass = ok ? 'b' : 'big';
+
+    row.querySelector('.spin').remove();
+    statEl.innerHTML = `原始 ${fmtSize(file.size)} → 壓縮後 <${sizeClass}>${fmtSize(blob.size)}</${sizeClass}>`
+      + (ok ? '' : '（已盡力，仍略大，可調低上限或換 WebP）');
+    const a = document.createElement('a');
+    a.className = 'dl'; a.href = url; a.download = `${base}_compressed.${ext}`; a.textContent = '下載';
+    row.appendChild(a);
+  } catch (err) {
+    row.querySelector('.spin').remove();
+    statEl.innerHTML = `<span class="big">處理失敗：${err.message}</span>`;
+  }
+}
+
+// 逐步降畫質 + 必要時縮小尺寸，直到 <= 上限
+async function compress(bitmap, maxBytes, mime) {
+  let w = bitmap.width, h = bitmap.height;
+  let best = null;
+
+  for (let scaleRound = 0; scaleRound < 12; scaleRound++) {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w));
+    canvas.height = Math.max(1, Math.round(h));
+    const ctx = canvas.getContext('2d');
+    if (mime === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0,0,canvas.width,canvas.height); }
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+    if (mime === 'image/png') {
+      const blob = await toBlob(canvas, mime, 1);
+      if (blob.size <= maxBytes || w * h < 100*100) return blob;
+      best = blob;
+    } else {
+      // 二分搜尋最高可接受畫質
+      let lo = 0.3, hi = 0.95, pick = null;
+      for (let i = 0; i < 8; i++) {
+        const q = (lo + hi) / 2;
+        const blob = await toBlob(canvas, mime, q);
+        if (blob.size <= maxBytes) { pick = blob; lo = q; } else { hi = q; }
+      }
+      if (pick) return pick;
+      const fallback = await toBlob(canvas, mime, 0.3);
+      best = fallback;
+      if (fallback.size <= maxBytes) return fallback;
+    }
+    // 還是太大 → 尺寸縮到 85%
+    w *= 0.85; h *= 0.85;
+  }
+  return best;
+}
+
+function toBlob(canvas, mime, q) {
+  return new Promise(res => canvas.toBlob(res, mime, q));
+}
+</script>
+</body>
+</html>
